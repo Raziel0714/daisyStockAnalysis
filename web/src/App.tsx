@@ -9,30 +9,37 @@ interface AppProps {}
 function App({}: AppProps) {
   const [ticker, setTicker] = useState('TSLA')
   const [interval, setInterval] = useState('1d')
+  const [strategy, setStrategy] = useState<'break_retest' | 'ma_crossover'>('break_retest')
   const [brkLookback, setBrkLookback] = useState(20)
   const [brkTolerance, setBrkTolerance] = useState(0.003)
   const [brkConfirm, setBrkConfirm] = useState(1)
   const [startDate, setStartDate] = useState('2024-01-01')
+  const [endDate, setEndDate] = useState('')
   const [data, setData] = useState<TVPoint[]>([])
+  const [showMA10, setShowMA10] = useState(true)
+  const [showMA30, setShowMA30] = useState(true)
+  const [showRSI14, setShowRSI14] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     fetchData()
-  }, [ticker, interval, brkLookback, brkTolerance, brkConfirm, startDate])
+  }, [ticker, interval, brkLookback, brkTolerance, brkConfirm, startDate, endDate, strategy])
 
   const fetchData = async () => {
     setLoading(true)
     setError('')
     try {
-      const params = {
+      const params: any = {
         ticker,
         interval,
+        strategy,
         brk_lookback: brkLookback,
         brk_tolerance: brkTolerance,
         brk_confirm: brkConfirm,
-        start: startDate
+        start: startDate,
       }
+      if (endDate) params.end = endDate
       const resp = await axios.get('/api/ohlc', { params })
       setData(resp.data?.data ?? [])
     } catch (err) {
@@ -63,7 +70,35 @@ function App({}: AppProps) {
         </div>
       </header>
 
+      {/* Indicators on its own row (separate card) */}
       <div className="controls">
+        <div className="control-group">
+          <label>Indicators</label>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={showMA10} onChange={(e) => setShowMA10(e.target.checked)} /> MA10
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={showMA30} onChange={(e) => setShowMA30(e.target.checked)} /> MA30
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={showRSI14} onChange={(e) => setShowRSI14(e.target.checked)} /> RSI14
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="controls">
+        <div className="control-group">
+          <label>Strategy</label>
+          <select
+            value={strategy}
+            onChange={(e) => setStrategy(e.target.value as 'break_retest' | 'ma_crossover')}
+          >
+            <option value="break_retest">Break & Retest</option>
+            <option value="ma_crossover">MA Crossover (MA10/MA30)</option>
+          </select>
+        </div>
         <div className="control-group">
           <label>Ticker</label>
           <input
@@ -94,6 +129,15 @@ function App({}: AppProps) {
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>End Date</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
           />
         </div>
 
@@ -162,7 +206,7 @@ function App({}: AppProps) {
         {loading ? (
           <div className="loading">Loading...</div>
         ) : data.length > 0 ? (
-          <TVChart data={data} height={520} />
+          <TVChart data={data} height={520} showMA10={showMA10} showMA30={showMA30} showRSI14={showRSI14} />
         ) : (
           <div className="loading">No data available</div>
         )}

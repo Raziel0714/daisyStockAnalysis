@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 
 export interface TVPoint {
   time: string
@@ -10,14 +10,18 @@ export interface TVPoint {
   MA30?: number | null
   BRK_BUY?: number | null
   BRK_SELL?: number | null
+  RSI14?: number | null
 }
 
 interface Props {
   data: TVPoint[]
   height?: number
+  showMA10?: boolean
+  showMA30?: boolean
+  showRSI14?: boolean
 }
 
-export default function CyberCandleChart({ data, height = 520 }: Props) {
+const CyberCandleChart: React.FC<Props> = ({ data, height = 520, showMA10 = true, showMA30 = true, showRSI14 = false }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
@@ -43,9 +47,12 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
     const padding = priceRange * 0.1
 
     const chartWidth = canvas.offsetWidth - 60
-    const chartHeight = height - 60 // 留出空间放时间标签
+    const rsiPaneHeight = showRSI14 ? Math.max(60, Math.floor(height * 0.22)) : 0
+    const paneGap = showRSI14 ? 10 : 0
+    const chartHeight = height - 60 - (rsiPaneHeight + paneGap) // 主图高度，底部留给RSI和时间
     const chartLeft = 50
     const chartTop = 20
+    const xAxisY = chartTop + chartHeight + (showRSI14 ? paneGap + rsiPaneHeight : 0) + 14
 
     ctx.strokeStyle = '#444'
     ctx.lineWidth = 1
@@ -91,7 +98,7 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
       ctx.fillRect(x - barWidth / 2, bodyTop, barWidth, Math.max(bodyHeight, 1))
 
       // MA10
-      if (d.MA10 != null) {
+      if (showMA10 && d.MA10 != null) {
         const y = scaleY(d.MA10)
         ctx.strokeStyle = '#42a5f5'
         ctx.lineWidth = 1.5
@@ -105,7 +112,7 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
       }
 
       // MA30
-      if (d.MA30 != null) {
+      if (showMA30 && d.MA30 != null) {
         const y = scaleY(d.MA30)
         ctx.strokeStyle = '#ba68c8'
         ctx.lineWidth = 1.5
@@ -118,26 +125,68 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
         lastMA30Y = y
       }
 
-      // BUY
+      // BUY (enhanced)
       if ((d.BRK_BUY ?? 0) >= 1) {
+        // subtle vertical highlight
+        ctx.save()
+        ctx.strokeStyle = 'rgba(0, 230, 118, 0.12)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(x, chartTop)
+        ctx.lineTo(x, chartTop + chartHeight)
+        ctx.stroke()
+        ctx.restore()
+
+        // large up arrow with white outline and glow
+        const tipY = lowY - 16
+        const half = 8
+        ctx.save()
+        ctx.shadowColor = 'rgba(0, 230, 118, 0.6)'
+        ctx.shadowBlur = 8
         ctx.fillStyle = '#00e676'
         ctx.beginPath()
-        ctx.moveTo(x, lowY - 10)
-        ctx.lineTo(x - 5, lowY - 3)
-        ctx.lineTo(x + 5, lowY - 3)
+        ctx.moveTo(x, tipY)
+        ctx.lineTo(x - half, tipY + 10)
+        ctx.lineTo(x + half, tipY + 10)
         ctx.closePath()
         ctx.fill()
+        ctx.shadowBlur = 0
+        ctx.lineWidth = 2
+        ctx.strokeStyle = '#ffffff'
+        ctx.stroke()
+        ctx.restore()
       }
 
-      // SELL
+      // SELL (enhanced)
       if ((d.BRK_SELL ?? 0) >= 1) {
+        // subtle vertical highlight
+        ctx.save()
+        ctx.strokeStyle = 'rgba(255, 23, 68, 0.12)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(x, chartTop)
+        ctx.lineTo(x, chartTop + chartHeight)
+        ctx.stroke()
+        ctx.restore()
+
+        // large down arrow with white outline and glow
+        const tipY = highY + 16
+        const half = 8
+        ctx.save()
+        ctx.shadowColor = 'rgba(255, 23, 68, 0.6)'
+        ctx.shadowBlur = 8
         ctx.fillStyle = '#ff1744'
         ctx.beginPath()
-        ctx.moveTo(x, highY + 10)
-        ctx.lineTo(x - 5, highY + 3)
-        ctx.lineTo(x + 5, highY + 3)
+        ctx.moveTo(x, tipY)
+        ctx.lineTo(x - half, tipY - 10)
+        ctx.lineTo(x + half, tipY - 10)
         ctx.closePath()
         ctx.fill()
+        ctx.shadowBlur = 0
+        ctx.lineWidth = 2
+        ctx.strokeStyle = '#ffffff'
+        ctx.stroke()
+        ctx.restore()
       }
     })
 
@@ -151,21 +200,106 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
       ctx.fillText(price.toFixed(2), 5, y + 4)
     }
 
+    // RSI pane (optional)
+    if (showRSI14 && rsiPaneHeight > 0) {
+      const rsiTop = chartTop + chartHeight + paneGap
+      const rsiHeight = rsiPaneHeight
+      const scaleRSI = (val: number) => rsiTop + rsiHeight - ((val - 0) / 100) * rsiHeight
+
+      // background grid
+      ctx.strokeStyle = '#333'
+      ctx.lineWidth = 1
+      for (let i = 0; i <= 4; i++) {
+        const y = rsiTop + (rsiHeight / 4) * i
+        ctx.beginPath()
+        ctx.moveTo(chartLeft, y)
+        ctx.lineTo(chartLeft + chartWidth, y)
+        ctx.stroke()
+      }
+
+      // 30/70 lines
+      ctx.strokeStyle = '#555'
+      ;[30, 70].forEach(level => {
+        const y = scaleRSI(level)
+        ctx.beginPath()
+        ctx.moveTo(chartLeft, y)
+        ctx.lineTo(chartLeft + chartWidth, y)
+        ctx.stroke()
+      })
+
+      // RSI line
+      ctx.strokeStyle = '#ffca28'
+      ctx.lineWidth = 1.5
+      let lastY: number | null = null
+      data.forEach((d, i) => {
+        if (d.RSI14 == null) return
+        const x = chartLeft + i * barSpacing + barSpacing / 2
+        const y = scaleRSI(d.RSI14)
+        if (lastY != null) {
+          ctx.beginPath()
+          ctx.moveTo(chartLeft + (i - 1) * barSpacing + barSpacing / 2, lastY)
+          ctx.lineTo(x, y)
+          ctx.stroke()
+        }
+        lastY = y
+      })
+    }
+
     // Time labels (X-axis)
     ctx.fillStyle = '#999'
     ctx.font = '10px Arial'
     ctx.textAlign = 'center'
-    const labelCount = 5
-    for (let i = 0; i <= labelCount; i++) {
-      const index = Math.floor((data.length - 1) * (i / labelCount))
-      const t = data[index].time
-      if (!t) continue
-      const label = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      const x = chartLeft + index * barSpacing + barSpacing / 2
-      ctx.fillText(label, x, chartTop + chartHeight + 14)
+
+    // 判断是否主要为日线数据（大多数时间为午夜）
+    const sampleCount = Math.min(50, data.length)
+    const dailyLikeCount = data.slice(0, sampleCount).reduce((acc, d) => {
+      const dt = new Date(d.time)
+      return acc + (dt.getHours() === 0 && dt.getMinutes() === 0 ? 1 : 0)
+    }, 0)
+    const isDaily = dailyLikeCount >= Math.max(5, Math.floor(sampleCount * 0.7))
+
+    if (isDaily) {
+      // 日线：尽量每个月一个刻度，避免重叠
+      const monthTicks: Array<{ index: number; label: string }> = []
+      let lastMonth = -1
+      for (let i = 0; i < data.length; i++) {
+        const t = data[i].time
+        if (!t) continue
+        const dt = new Date(t)
+        const month = dt.getMonth()
+        if (month !== lastMonth) {
+          // 标签仅显示月份（跨年时间距足够会自然显示多个月份）
+          const label = dt.toLocaleDateString([], { month: 'short' })
+          monthTicks.push({ index: i, label })
+          lastMonth = month
+        }
+      }
+      // 基于像素间距去重，避免重叠
+      const minPixelGap = 60 // 每个标签至少间隔60像素
+      let lastX = -Infinity
+      for (const tick of monthTicks) {
+        const x = chartLeft + tick.index * barSpacing + barSpacing / 2
+        if (x - lastX >= minPixelGap) {
+          ctx.fillText(tick.label, x, xAxisY)
+          lastX = x
+        }
+      }
+    } else {
+      // 分钟/小时等：根据宽度动态设置刻度数量，避免过稀
+      const approxCount = Math.max(6, Math.min(20, Math.floor(chartWidth / 80)))
+      const labelCount = Math.max(5, approxCount)
+      for (let i = 0; i <= labelCount; i++) {
+        const index = Math.floor((data.length - 1) * (i / labelCount))
+        const t = data[index]?.time
+        if (!t) continue
+        const date = new Date(t)
+        const label = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        const x = chartLeft + index * barSpacing + barSpacing / 2
+        ctx.fillText(label, x, xAxisY)
+      }
     }
 
-  }, [data, height])
+  }, [data, height, showMA10, showMA30, showRSI14])
 
   return (
     <div style={{ width: '100%', height, position: 'relative' }}>
@@ -193,11 +327,27 @@ export default function CyberCandleChart({ data, height = 520 }: Props) {
           letterSpacing: '0.5px',
         }}
       >
-        {data.length} candles | MA10: <span style={{ color: '#42a5f5' }}>Blue</span> | MA30:{' '}
-        <span style={{ color: '#ba68c8' }}>Purple</span> |{' '}
-        <span style={{ color: '#00e676' }}>BUY ▲</span> |{' '}
+        {data.length} candles
+        {showMA10 ? (
+          <>
+            {' '}| MA10: <span style={{ color: '#42a5f5' }}>Blue</span>
+          </>
+        ) : null}
+        {showMA30 ? (
+          <>
+            {' '}| MA30: <span style={{ color: '#ba68c8' }}>Purple</span>
+          </>
+        ) : null}
+        {showRSI14 ? (
+          <>
+            {' '}| RSI14: <span style={{ color: '#ffca28' }}>Gold</span>
+          </>
+        ) : null}
+        {' '}| <span style={{ color: '#00e676' }}>BUY ▲</span> |{' '}
         <span style={{ color: '#ff1744' }}>SELL ▼</span>
       </div>
     </div>
   )
 }
+
+export default CyberCandleChart

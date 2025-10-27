@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 
 from data_provider.yfinance_provider import YFinanceProvider
 from indicators.indicator_utils import compute_basics
+from strategies.crossover import ma_crossover_signals
 from strategies.break_retest import break_retest_signals
 
 
@@ -58,6 +59,7 @@ def get_ohlc(
     start: str = Query("2024-01-01"),
     end: str = Query(str(date.today())),
     interval: str = Query("1d"),
+    strategy: str = Query("break_retest"),  # break_retest | ma_crossover
     brk_lookback: int = Query(20),
     brk_tolerance: float = Query(0.003),
     brk_confirm: int = Query(1),
@@ -73,13 +75,23 @@ def get_ohlc(
     if df.empty:
         return {"ticker": ticker, "data": []}
     base = compute_basics(df)
-    out = break_retest_signals(
-        base,
-        lookback=brk_lookback,
-        price_col="Close",
-        tolerance=brk_tolerance,
-        confirmation_bars=brk_confirm,
-    )
+
+    # Strategy routing
+    if strategy == "ma_crossover":
+        # Map MA crossover signals to BRK_BUY/BRK_SELL so frontend stays unchanged
+        buy_bool, sell_bool = ma_crossover_signals(base, fast_col="MA10", slow_col="MA30")
+        out = base.copy()
+        out["BRK_BUY"] = buy_bool.astype(int)
+        out["BRK_SELL"] = sell_bool.astype(int)
+        out["BRK_STATE"] = "neutral"
+    else:
+        out = break_retest_signals(
+            base,
+            lookback=brk_lookback,
+            price_col="Close",
+            tolerance=brk_tolerance,
+            confirmation_bars=brk_confirm,
+        )
     return {"ticker": ticker, "data": df_to_records(out)}
 
 
@@ -88,6 +100,7 @@ def get_recent(
     ticker: str = Query("TSLA"),
     period: str = Query("2d"),
     interval: str = Query("1m"),
+    strategy: str = Query("break_retest"),  # break_retest | ma_crossover
     brk_lookback: int = Query(20),
     brk_tolerance: float = Query(0.003),
     brk_confirm: int = Query(1),
@@ -97,13 +110,21 @@ def get_recent(
     if df.empty:
         return {"ticker": ticker, "data": []}
     base = compute_basics(df)
-    out = break_retest_signals(
-        base,
-        lookback=brk_lookback,
-        price_col="Close",
-        tolerance=brk_tolerance,
-        confirmation_bars=brk_confirm,
-    )
+
+    if strategy == "ma_crossover":
+        buy_bool, sell_bool = ma_crossover_signals(base, fast_col="MA10", slow_col="MA30")
+        out = base.copy()
+        out["BRK_BUY"] = buy_bool.astype(int)
+        out["BRK_SELL"] = sell_bool.astype(int)
+        out["BRK_STATE"] = "neutral"
+    else:
+        out = break_retest_signals(
+            base,
+            lookback=brk_lookback,
+            price_col="Close",
+            tolerance=brk_tolerance,
+            confirmation_bars=brk_confirm,
+        )
     return {"ticker": ticker, "data": df_to_records(out)}
 
 
