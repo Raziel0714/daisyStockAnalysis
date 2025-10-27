@@ -32,11 +32,23 @@ body {
 }
 
 .app-container {
-  min-height: 100vh;
+  width: 100vw;
+  max-width: none;
+  margin: 0;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  box-sizing: border-box;
+}
+
+/* ✅ 主要内容区块统一宽度并铺满 */
+.header,
+.controls,
+.stats-grid,
+.chart-section {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* 标题栏 */
@@ -259,4 +271,23 @@ body {
     gap: 10px;
     text-align: center;
   }
+}
+
+/* 图表区域白框和 tooltip 美化 */
+.chart-section canvas {
+  border: none !important;
+  background: transparent !important;
+}
+
+.chart-section .recharts-tooltip-wrapper,
+.chart-section .tv-legend,
+.chart-section .tv-tooltip,
+.chart-section .tv-overlay,
+.chart-section .chart-legend {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  font-size: 0.85em;
+  text-shadow: 0 0 5px var(--primary-dark);
 }
