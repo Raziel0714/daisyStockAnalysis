@@ -9,6 +9,7 @@ interface AppProps {}
 function App({}: AppProps) {
   const [ticker, setTicker] = useState('TSLA')
   const [interval, setInterval] = useState('1d')
+  // force alpaca
   const [strategy, setStrategy] = useState<'break_retest' | 'ma_crossover'>('break_retest')
   const [brkLookback, setBrkLookback] = useState(20)
   const [brkTolerance, setBrkTolerance] = useState(0.003)
@@ -21,10 +22,55 @@ function App({}: AppProps) {
   const [showRSI14, setShowRSI14] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // always streaming via WS (no toggle)
+  const [wsRef, setWsRef] = useState<WebSocket | null>(null)
+  const [btLoading, setBtLoading] = useState(false)
+  const [btError, setBtError] = useState('')
+  const [btStats, setBtStats] = useState<{ final_equity?: number; max_drawdown?: number; initial_capital?: number; final_value?: number; profit?: number; return_pct?: number } | null>(null)
+  const [btEquity, setBtEquity] = useState<{ time: string; Equity?: number }[]>([])
+  const [initCapital, setInitCapital] = useState(10000)
 
   useEffect(() => {
     fetchData()
   }, [ticker, interval, brkLookback, brkTolerance, brkConfirm, startDate, endDate, strategy])
+  // Always-on WS streaming with Alpaca
+  useEffect(() => {
+    if (wsRef) {
+      wsRef.close()
+      setWsRef(null)
+    }
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/bars?ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}&strategy=${encodeURIComponent(strategy)}&brk_lookback=${brkLookback}&brk_tolerance=${brkTolerance}&brk_confirm=${brkConfirm}`
+    const ws = new WebSocket(url)
+    setWsRef(ws)
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'snapshot' && Array.isArray(msg.data)) {
+          setData(msg.data)
+        } else if (msg.type === 'bar' && msg.data) {
+          setData(prev => {
+            const copy = [...prev]
+            const last = copy[copy.length - 1]
+            if (last && last.time === msg.data.time) {
+              copy[copy.length - 1] = msg.data
+            } else {
+              copy.push(msg.data)
+            }
+            return copy
+          })
+        }
+      } catch {}
+    }
+    ws.onerror = () => {
+      console.error('WS error')
+    }
+    ws.onclose = () => {
+      setWsRef(null)
+    }
+    return () => {
+      ws.close()
+    }
+  }, [ticker, interval, strategy, brkLookback, brkTolerance, brkConfirm])
 
   const fetchData = async () => {
     setLoading(true)
@@ -33,6 +79,7 @@ function App({}: AppProps) {
       const params: any = {
         ticker,
         interval,
+        source: 'alpaca',
         strategy,
         brk_lookback: brkLookback,
         brk_tolerance: brkTolerance,
@@ -50,16 +97,7 @@ function App({}: AppProps) {
     }
   }
 
-  // 计算统计数据
-  const stats = {
-    totalBars: data.length,
-    buySignals: data.filter(d => (d.BRK_BUY ?? 0) >= 1).length,
-    sellSignals: data.filter(d => (d.BRK_SELL ?? 0) >= 1).length,
-    lastPrice: data.length > 0 ? data[data.length - 1].Close?.toFixed(2) : '-',
-    priceChange: data.length > 1 && data[data.length - 1].Close != null && data[data.length - 2].Close != null
-      ? ((data[data.length - 1].Close! - data[data.length - 2].Close!) / data[data.length - 2].Close! * 100).toFixed(2)
-      : '-'
-  }
+  // 已移除基础统计卡片
 
   return (
     <div className="app-container">
@@ -72,6 +110,44 @@ function App({}: AppProps) {
 
       {/* Indicators on its own row (separate card) */}
       <div className="controls">
+        <div className="control-group">
+          <label>Backtest</label>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Init Capital
+            <input type="number" value={initCapital} onChange={(e) => setInitCapital(Number(e.target.value))} style={{ width: 120 }} />
+          </label>
+          <button
+            className="cyber-button"
+            onClick={async () => {
+              setBtLoading(true)
+              setBtError('')
+              try {
+                const params: any = {
+                  ticker,
+                  start: startDate,
+                  end: endDate || undefined,
+                  interval,
+                  source: 'alpaca',
+                  strategy,
+                  fee_bp: 10,
+                  init_capital: initCapital,
+                }
+                const resp = await axios.get('/api/backtest', { params })
+                setBtStats(resp.data?.stats ?? null)
+                setBtEquity(resp.data?.equity ?? [])
+              } catch (e) {
+                setBtError('Backtest failed')
+                console.error(e)
+              } finally {
+                setBtLoading(false)
+              }
+            }}
+          >
+            Run Backtest
+          </button>
+          </div>
+        </div>
         <div className="control-group">
           <label>Indicators</label>
           <div style={{ display: 'flex', gap: 12 }}>
@@ -89,6 +165,8 @@ function App({}: AppProps) {
       </div>
 
       <div className="controls">
+        
+
         <div className="control-group">
           <label>Strategy</label>
           <select
@@ -170,28 +248,59 @@ function App({}: AppProps) {
         </div>
       </div>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-title">Total Bars</div>
-          <div className="stat-value">{stats.totalBars}</div>
+      {btStats && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-title">Backtest Final Equity</div>
+            <div className="stat-value">{btStats.final_value?.toFixed(2)}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-title">Max Drawdown</div>
+            <div className="stat-value">{((btStats.max_drawdown || 0) * 100).toFixed(2)}%</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-title">Profit</div>
+            <div className="stat-value">{btStats.profit?.toFixed(2)}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-title">Return %</div>
+            <div className="stat-value">{btStats.return_pct?.toFixed(2)}%</div>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-title">Buy Signals</div>
-          <div className="stat-value">{stats.buySignals}</div>
+      )}
+
+      {btLoading && <div className="loading">Backtesting...</div>}
+      {btError && <div className="error">{btError}</div>}
+
+      {btEquity.length > 0 && (
+        <div className="chart-section">
+          <div className="chart-header">
+            <h2 className="chart-title">Equity Curve</h2>
+          </div>
+          <div style={{ width: '100%', height: 120, position: 'relative', background: '#111', borderRadius: 6 }}>
+            {(() => {
+              const values = btEquity.map(p => {
+                const v = (p as any).Equity
+                return typeof v === 'number' ? v : Number(v ?? 1)
+              })
+              const min = Math.min(...values)
+              const max = Math.max(...values)
+              const w = 800
+              const h = 100
+              const pts = values.map((v, i) => {
+                const x = (i / Math.max(1, values.length - 1)) * w
+                const y = h - ((v - min) / Math.max(1e-9, (max - min))) * h
+                return `${x},${y}`
+              }).join(' ')
+              return (
+                <svg width="100%" height="120" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+                  <polyline fill="none" stroke="#42a5f5" strokeWidth="2" points={pts} />
+                </svg>
+              )
+            })()}
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-title">Sell Signals</div>
-          <div className="stat-value">{stats.sellSignals}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-title">Last Price</div>
-          <div className="stat-value">${stats.lastPrice}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-title">Price Change</div>
-          <div className="stat-value">{stats.priceChange}%</div>
-        </div>
-      </div>
+      )}
 
       <div className="chart-section">
         <div className="chart-header">
